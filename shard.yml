@@ -24,3 +24,6 @@ dependencies:
   baked_file_system:
     github: schovi/baked_file_system
     version: ~> 0.9.8
+  kemal-csrf:
+    github: taylorfinnell/kemal-csrf
+    branch: crystal-0.30.1
