@@ -259,7 +259,7 @@ post "#{root_path}scheduled/:key" do |x|
 end
 
 Sidekiq::Filesystem.files.each do |file|
-  get(file.path) do |env|
+  get("#{root_path}#{file.path[1..-1]}") do |env|
     Sidekiq::Filesystem.serve(file, env)
   end
 end
