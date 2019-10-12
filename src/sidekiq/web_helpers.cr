@@ -86,7 +86,11 @@ module Sidekiq
     end
 
     def root_path
-      "/"
+      "/sidekiq/"
+    end
+
+    def self.root_path
+      "/sidekiq/"
     end
 
     def current_path

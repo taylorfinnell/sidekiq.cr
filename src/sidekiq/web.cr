@@ -34,7 +34,7 @@ class HTTP::Server::Context
   include Sidekiq::WebHelpers
 end
 
-root_path = ""
+root_path = Sidekiq::WebHelpers.root_path
 
 macro ecr(xxx)
   {% if xxx.starts_with?('_') %}
@@ -44,7 +44,7 @@ macro ecr(xxx)
   {% end %}
 end
 
-get "/" do |x|
+get "#{root_path}" do |x|
   days = x.params.query.fetch("days", 30).to_i
   redis_info = x.redis_info.select { |k, v| REDIS_KEYS.includes? k }
   stats_history = Sidekiq::Stats::History.new(days)
@@ -55,11 +55,11 @@ end
 
 REDIS_KEYS = %w(redis_version uptime_in_days connected_clients used_memory_human used_memory_peak_human)
 
-get "/dashboard/stats" do |x|
+get "#{root_path}dashboard/stats" do |x|
   x.redirect "#{x.root_path}stats"
 end
 
-get "/stats" do |x|
+get "#{root_path}stats" do |x|
   sidekiq_stats = Sidekiq::Stats.new
   redis_stats = x.redis_info.select { |k, v| REDIS_KEYS.includes? k }
 
@@ -80,18 +80,18 @@ get "/stats" do |x|
   }.to_json
 end
 
-get "/stats/queues" do |x|
+get "#{root_path}stats/queues" do |x|
   queue_stats = Sidekiq::Stats::Queues.new
 
   x.response.content_type = "application/json"
   queue_stats.lengths.to_json
 end
 
-get "/busy" do |x|
+get "#{root_path}busy" do |x|
   ecr("busy")
 end
 
-post "/busy" do |x|
+post "#{root_path}busy" do |x|
   id = x.params.body["identity"]?
   if id
     p = Sidekiq::Process.new({"identity" => JSON::Any.new(id)})
@@ -106,12 +106,12 @@ post "/busy" do |x|
   x.redirect "/busy"
 end
 
-get "/queues" do |x|
+get "#{root_path}queues" do |x|
   queues = Sidekiq::Queue.all
   ecr("queues")
 end
 
-get "/queues/:name" do |x|
+get "#{root_path}queues/:name" do |x|
   name = x.params.url["name"]
   queue = Sidekiq::Queue.new(name)
   count = 25
@@ -120,27 +120,27 @@ get "/queues/:name" do |x|
   ecr("queue")
 end
 
-post "/queues/:name" do |x|
+post "#{root_path}queues/:name" do |x|
   name = x.params.url["name"]
   Sidekiq::Queue.new(name).clear
   x.redirect "#{x.root_path}queues"
 end
 
-post "/queues/:name/delete" do |x|
+post "#{root_path}queues/:name/delete" do |x|
   name = x.params.url["name"]
   val = x.params.body["key_val"]
   Sidekiq::JobProxy.new(val).delete
   x.redirect x.url_with_query(x, "#{x.root_path}queues/#{name}")
 end
 
-get "/morgue" do |x|
+get "#{root_path}morgue" do |x|
   count = 25
   current_page, total_size, msg = x.zpage("dead", x.params.query["page"]?.try(&.to_i) || 1, count, {reverse: true})
   dead = msg.map { |(msg, score)| Sidekiq::SortedEntry.new(nil, score.to_f, msg) }
   ecr("morgue")
 end
 
-get "/morgue/:key" do |x|
+get "#{root_path}morgue/:key" do |x|
   element = x.params.url["key"]
   score, jid = element.split("-")
   dead = Sidekiq::DeadSet.new.fetch(score.to_f, jid).first
@@ -148,7 +148,7 @@ get "/morgue/:key" do |x|
   ecr("dead")
 end
 
-post "/morgue" do |x|
+post "#{root_path}morgue" do |x|
   bdy = HTTP::Params.parse(x.request.body.not_nil!.gets_to_end)
   bdy.fetch_all("key").each do |key|
     score, jid = key.split("-")
@@ -158,17 +158,17 @@ post "/morgue" do |x|
   x.redirect x.url_with_query(x, "#{x.root_path}morgue")
 end
 
-post "/morgue/all/delete" do |x|
+post "#{root_path}morgue/all/delete" do |x|
   Sidekiq::DeadSet.new.clear
   x.redirect "#{x.root_path}morgue"
 end
 
-post "/morgue/all/retry" do |x|
+post "#{root_path}morgue/all/retry" do |x|
   Sidekiq::DeadSet.new.retry_all
   x.redirect "#{x.root_path}morgue"
 end
 
-post "/morgue/:key" do |x|
+post "#{root_path}morgue/:key" do |x|
   element = x.params.url["key"]
   score, jid = element.split("-")
   job = Sidekiq::DeadSet.new.fetch(score.to_f, jid).first?
@@ -176,14 +176,14 @@ post "/morgue/:key" do |x|
   x.redirect x.url_with_query(x, "#{x.root_path}morgue")
 end
 
-get "/retries" do |x|
+get "#{root_path}retries" do |x|
   count = 25
   current_page, total_size, msgs = x.zpage("retry", x.params.query["page"]?.try(&.to_i) || 1, count)
   retries = msgs.map { |(msg, score)| Sidekiq::SortedEntry.new(nil, score.to_f, msg) }
   ecr("retries")
 end
 
-get "/retries/:key" do |x|
+get "#{root_path}retries/:key" do |x|
   element = x.params.url["key"]
   score, jid = element.split("-")
   retri = Sidekiq::RetrySet.new.fetch(score.to_f, jid).first?
@@ -194,7 +194,7 @@ get "/retries/:key" do |x|
   end
 end
 
-post "/retries" do |x|
+post "#{root_path}retries" do |x|
   bdy = HTTP::Params.parse(x.request.body.not_nil!.gets_to_end)
   bdy.fetch_all("key").each do |key|
     score, jid = key.split("-")
@@ -204,17 +204,17 @@ post "/retries" do |x|
   x.redirect x.url_with_query(x, "#{x.root_path}retries")
 end
 
-post "/retries/all/delete" do |x|
+post "#{root_path}retries/all/delete" do |x|
   Sidekiq::RetrySet.new.clear
   x.redirect "#{x.root_path}retries"
 end
 
-post "/retries/all/retry" do |x|
+post "#{root_path}retries/all/retry" do |x|
   Sidekiq::RetrySet.new.retry_all
   x.redirect "#{x.root_path}retries"
 end
 
-post "/retries/:key" do |x|
+post "#{root_path}retries/:key" do |x|
   element = x.params.url["key"]
   score, jid = element.split("-")
   job = Sidekiq::RetrySet.new.fetch(score.to_f, jid).first?
@@ -222,14 +222,14 @@ post "/retries/:key" do |x|
   x.redirect x.url_with_query(x, "#{x.root_path}retries")
 end
 
-get "/scheduled" do |x|
+get "#{root_path}scheduled" do |x|
   count = 25
   current_page, total_size, msgs = x.zpage("schedule", x.params.query["page"]?.try(&.to_i) || 1, count)
   scheduled = msgs.map { |(msg, score)| Sidekiq::SortedEntry.new(nil, score.to_f, msg) }
   ecr("scheduled")
 end
 
-get "/scheduled/:key" do |x|
+get "#{root_path}scheduled/:key" do |x|
   element = x.params.url["key"]
   score, jid = element.split("-")
   job = Sidekiq::ScheduledSet.new.fetch(score.to_f, jid).first?
@@ -240,7 +240,7 @@ get "/scheduled/:key" do |x|
   end
 end
 
-post "/scheduled" do |x|
+post "#{root_path}scheduled" do |x|
   ss = Sidekiq::ScheduledSet.new
   x.params.body.fetch_all("key").each do |key|
     score, jid = key.split("-")
@@ -250,7 +250,7 @@ post "/scheduled" do |x|
   x.redirect x.url_with_query(x, "#{x.root_path}scheduled")
 end
 
-post "/scheduled/:key" do |x|
+post "#{root_path}scheduled/:key" do |x|
   element = x.params.url["key"]
   score, jid = element.split("-")
   job = Sidekiq::ScheduledSet.new.fetch(score.to_f, jid).first?

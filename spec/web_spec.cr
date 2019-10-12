@@ -15,26 +15,28 @@ Kemal.config do |config|
   config.handlers = [Kemal::RouteHandler::INSTANCE]
 end
 
+root_path = Sidekiq::WebHelpers.root_path
+
 describe "sidekiq web" do
   it "can show text with any locales" do
     empty = {} of String => String
     rackenv = {"HTTP_ACCEPT_LANGUAGE" => "ru,en"}
-    get "/", empty, rackenv
+    get "#{root_path}", empty, rackenv
     assert_match(/Панель управления/, last_response.body)
     rackenv = {"HTTP_ACCEPT_LANGUAGE" => "es,en"}
-    get "/", empty, rackenv
+    get "#{root_path}", empty, rackenv
     assert_match(/Panel de Control/, last_response.body)
     rackenv = {"HTTP_ACCEPT_LANGUAGE" => "en-us"}
-    get "/", empty, rackenv
+    get "#{root_path}", empty, rackenv
     assert_match(/Dashboard/, last_response.body)
     rackenv = {"HTTP_ACCEPT_LANGUAGE" => "zh-cn"}
-    get "/", empty, rackenv
+    get "#{root_path}", empty, rackenv
     assert_match(/信息板/, last_response.body)
     rackenv = {"HTTP_ACCEPT_LANGUAGE" => "zh-tw"}
-    get "/", empty, rackenv
+    get "#{root_path}", empty, rackenv
     assert_match(/資訊主頁/, last_response.body)
     rackenv = {"HTTP_ACCEPT_LANGUAGE" => "nb"}
-    get "/", empty, rackenv
+    get "#{root_path}", empty, rackenv
     assert_match(/Oversikt/, last_response.body)
   end
 
@@ -66,7 +68,7 @@ describe "sidekiq web" do
       add_worker
       assert_equal ["1001"], Sidekiq::Workers.new.map { |entry| entry.thread_id }
 
-      get "/busy"
+      get "#{root_path}busy"
       assert_equal 200, last_response.status_code
       assert_match(/status-active/, last_response.body)
       assert_match(/critical/, last_response.body)
@@ -78,7 +80,7 @@ describe "sidekiq web" do
       signals_key = "#{identity}-signals"
 
       Sidekiq.redis { |c| c.lpop signals_key }.should be_nil
-      post "/busy", {"quiet" => "1", "identity" => identity}
+      post "#{root_path}busy", {"quiet" => "1", "identity" => identity}
       assert_equal 302, last_response.status_code
       assert_equal "USR1", Sidekiq.redis { |c| c.lpop signals_key }
     end
@@ -88,7 +90,7 @@ describe "sidekiq web" do
       signals_key = "#{identity}-signals"
 
       Sidekiq.redis { |c| c.lpop signals_key }.should be_nil
-      post "/busy", {"stop" => "1", "identity" => identity}
+      post "#{root_path}busy", {"stop" => "1", "identity" => identity}
       assert_equal 302, last_response.status_code
       assert_equal "TERM", Sidekiq.redis { |c| c.lpop signals_key }
     end
@@ -97,26 +99,26 @@ describe "sidekiq web" do
   it "can display queues" do
     WebWorker.async { |j| j.queue = "foo" }.perform(1_i64, 3_i64).should_not be_nil
 
-    get "/queues"
+    get "#{root_path}queues"
     assert_equal 200, last_response.status_code
     assert_match(/foo/, last_response.body)
     refute_match(/HardWorker/, last_response.body)
   end
 
   it "handles queue view" do
-    get "/queues/default"
+    get "#{root_path}queues/default"
     assert_equal 200, last_response.status_code
   end
 
   it "can delete a queue" do
     WebWorker.async { |j| j.queue = "foo" }.perform(1_i64, 2_i64).should_not be_nil
 
-    get "/queues/foo"
+    get "#{root_path}queues/foo"
     assert_equal 200, last_response.status_code
 
-    post "/queues/foo"
+    post "#{root_path}queues/foo"
     assert_equal 302, last_response.status_code
-    assert_equal "/queues", last_response.headers["Location"]
+    assert_equal "#{root_path}queues", last_response.headers["Location"]
 
     Sidekiq.redis do |conn|
       conn.smembers("queues").includes?("foo").should be_false
@@ -130,16 +132,16 @@ describe "sidekiq web" do
     WebWorker.async { |j| j.queue = "foo" }.perform(3_i64, 6_i64).should_not be_nil
     job = Sidekiq::Queue.new("foo").find_job(jid).not_nil!
 
-    get "/queues/foo"
+    get "#{root_path}queues/foo"
     assert_equal 200, last_response.status_code
 
     Sidekiq.redis do |conn|
       conn.lrange("queue:foo", 0, -1).includes?(job.value).should be_true
     end
 
-    post "/queues/foo/delete", {"key_val" => job.value}
+    post "#{root_path}queues/foo/delete", {"key_val" => job.value}
     assert_equal 302, last_response.status_code
-    assert_equal "/queues/foo", last_response.headers["Location"]
+    assert_equal "#{root_path}queues/foo", last_response.headers["Location"]
 
     Sidekiq.redis do |conn|
       conn.lrange("queue:foo", 0, -1).includes?(job.value).should be_false
@@ -147,14 +149,14 @@ describe "sidekiq web" do
   end
 
   it "can display retries" do
-    get "/retries"
+    get "#{root_path}retries"
     assert_equal 200, last_response.status_code
     assert_match(/found/, last_response.body)
     refute_match(/HardWorker/, last_response.body)
 
     add_retry
 
-    get "/retries"
+    get "#{root_path}retries"
     assert_equal 200, last_response.status_code
     refute_match(/found/, last_response.body)
     assert_match(/HardWorker/, last_response.body)
@@ -162,25 +164,25 @@ describe "sidekiq web" do
 
   it "can display a single retry" do
     params = add_retry
-    get "/retries/0-shouldntexist"
+    get "#{root_path}retries/0-shouldntexist"
     assert_equal 302, last_response.status_code
-    get "/retries/#{job_params(*params)}"
+    get "#{root_path}retries/#{job_params(*params)}"
     assert_equal 200, last_response.status_code
     assert_match(/HardWorker/, last_response.body)
   end
 
   it "handles missing retry" do
-    get "/retries/0-shouldntexist"
+    get "#{root_path}retries/0-shouldntexist"
     assert_equal 302, last_response.status_code
   end
 
   it "can delete a single retry" do
     params = add_retry
-    post "/retries/#{job_params(*params)}", {"delete" => "Delete"}
+    post "#{root_path}retries/#{job_params(*params)}", {"delete" => "Delete"}
     assert_equal 302, last_response.status_code
-    assert_equal "/retries", last_response.headers["Location"]
+    assert_equal "#{root_path}retries", last_response.headers["Location"]
 
-    get "/retries"
+    get "#{root_path}retries"
     assert_equal 200, last_response.status_code
     refute_match(/#{params[1]}/, last_response.body)
   end
@@ -188,19 +190,19 @@ describe "sidekiq web" do
   it "can delete all retries" do
     3.times { add_retry }
 
-    post "/retries/all/delete", {"delete" => "Delete"}
+    post "#{root_path}retries/all/delete", {"delete" => "Delete"}
     assert_equal 0, Sidekiq::RetrySet.new.size
     assert_equal 302, last_response.status_code
-    assert_equal "/retries", last_response.headers["Location"]
+    assert_equal "#{root_path}retries", last_response.headers["Location"]
   end
 
   it "can retry a single retry now" do
     params = add_retry
-    post "/retries/#{job_params(*params)}", {"retry" => "Retry"}
+    post "#{root_path}retries/#{job_params(*params)}", {"retry" => "Retry"}
     assert_equal 302, last_response.status_code
-    assert_equal "/retries", last_response.headers["Location"]
+    assert_equal "#{root_path}retries", last_response.headers["Location"]
 
-    get "/queues/default"
+    get "#{root_path}queues/default"
     assert_equal 200, last_response.status_code
     msg = params[0]
     assert_match(/#{params[1]}/, last_response.body)
@@ -208,24 +210,24 @@ describe "sidekiq web" do
 
   it "can kill a single retry now" do
     params = add_retry
-    post "/retries/#{job_params(*params)}", {"kill" => "Kill"}
+    post "#{root_path}retries/#{job_params(*params)}", {"kill" => "Kill"}
     assert_equal 302, last_response.status_code
-    assert_equal "/retries", last_response.headers["Location"]
+    assert_equal "#{root_path}retries", last_response.headers["Location"]
 
-    get "/morgue"
+    get "#{root_path}morgue"
     assert_equal 200, last_response.status_code
     assert_match(/#{params[1]}/, last_response.body)
   end
 
   it "can display scheduled" do
-    get "/scheduled"
+    get "#{root_path}scheduled"
     assert_equal 200, last_response.status_code
     assert_match(/found/, last_response.body)
     refute_match(/HardWorker/, last_response.body)
 
     add_scheduled
 
-    get "/scheduled"
+    get "#{root_path}scheduled"
     assert_equal 200, last_response.status_code
     refute_match(/found/, last_response.body)
     assert_match(/HardWorker/, last_response.body)
@@ -233,36 +235,36 @@ describe "sidekiq web" do
 
   it "can display a single scheduled job" do
     params = add_scheduled
-    get "/scheduled/0-shouldntexist"
+    get "#{root_path}scheduled/0-shouldntexist"
     assert_equal 302, last_response.status_code
-    get "/scheduled/#{job_params(*params)}"
+    get "#{root_path}scheduled/#{job_params(*params)}"
     assert_equal 200, last_response.status_code
     assert_match(/HardWorker/, last_response.body)
   end
 
   it "handles missing scheduled job" do
-    get "/scheduled/0-shouldntexist"
+    get "#{root_path}scheduled/0-shouldntexist"
     assert_equal 302, last_response.status_code
   end
 
   it "can add to queue a single scheduled job" do
     params = add_scheduled
-    post "/scheduled/#{job_params(*params)}", {"add_to_queue" => "true"}
+    post "#{root_path}scheduled/#{job_params(*params)}", {"add_to_queue" => "true"}
     assert_equal 302, last_response.status_code
-    assert_equal "/scheduled", last_response.headers["Location"]
+    assert_equal "#{root_path}scheduled", last_response.headers["Location"]
 
-    get "/queues/default"
+    get "#{root_path}queues/default"
     assert_equal 200, last_response.status_code
     assert_match(/#{params[1]}/, last_response.body)
   end
 
   it "can delete a single scheduled job" do
     params = add_scheduled
-    post "/scheduled/#{job_params(*params)}", {"delete" => "Delete"}
+    post "#{root_path}scheduled/#{job_params(*params)}", {"delete" => "Delete"}
     assert_equal 302, last_response.status_code
-    assert_equal "/scheduled", last_response.headers["Location"]
+    assert_equal "#{root_path}scheduled", last_response.headers["Location"]
 
-    get "/scheduled"
+    get "#{root_path}scheduled"
     assert_equal 200, last_response.status_code
     refute_match(/#{params[1]}/, last_response.body)
   end
@@ -271,9 +273,9 @@ describe "sidekiq web" do
     params = add_scheduled
     Sidekiq.redis do |conn|
       assert_equal 1, conn.zcard("schedule")
-      post "/scheduled", {"key" => job_params(*params), "delete" => "Delete"}
+      post "#{root_path}scheduled", {"key" => job_params(*params), "delete" => "Delete"}
       assert_equal 302, last_response.status_code
-      assert_equal "/scheduled", last_response.headers["Location"]
+      assert_equal "#{root_path}scheduled", last_response.headers["Location"]
       assert_equal 0, conn.zcard("schedule")
     end
   end
@@ -284,12 +286,12 @@ describe "sidekiq web" do
     Sidekiq.redis do |conn|
       assert_equal 1, conn.zcard("schedule")
       assert_equal 0, q.size
-      post "/scheduled", {"key" => job_params(*params), "add_to_queue" => "AddToQueue"}
+      post "#{root_path}scheduled", {"key" => job_params(*params), "add_to_queue" => "AddToQueue"}
       assert_equal 302, last_response.status_code
-      assert_equal "/scheduled", last_response.headers["Location"]
+      assert_equal "#{root_path}scheduled", last_response.headers["Location"]
       assert_equal 0, conn.zcard("schedule")
       assert_equal 1, q.size
-      get "/queues/default"
+      get "#{root_path}queues/default"
       assert_equal 200, last_response.status_code
       assert_match(/#{params[1]}/, last_response.body)
     end
@@ -299,18 +301,18 @@ describe "sidekiq web" do
     msg, score = add_retry
     add_retry
 
-    post "/retries/all/retry", {"retry" => "Retry"}
+    post "#{root_path}retries/all/retry", {"retry" => "Retry"}
     assert_equal 302, last_response.status_code
-    assert_equal "/retries", last_response.headers["Location"]
+    assert_equal "#{root_path}retries", last_response.headers["Location"]
     assert_equal 2, Sidekiq::Queue.new("default").size
 
-    get "/queues/default"
+    get "#{root_path}queues/default"
     assert_equal 200, last_response.status_code
     assert_match(/#{score}/, last_response.body)
   end
 
   it "calls updatePage() once when polling" do
-    get "/busy", {"poll" => "true"}
+    get "#{root_path}busy", {"poll" => "true"}
     assert_equal 200, last_response.status_code
     assert_equal 1, last_response.body.scan("updatePage(").size
   end
@@ -318,7 +320,7 @@ describe "sidekiq web" do
   it "escape job args and error messages" do
     # on /retries page
     params = add_xss_retry
-    get "/retries"
+    get "#{root_path}retries"
     assert_equal 200, last_response.status_code
     assert_match(/FailWorker/, last_response.body)
 
@@ -339,7 +341,7 @@ describe "sidekiq web" do
       conn.incr("busy")
     end
 
-    get "/busy"
+    get "#{root_path}busy"
     assert_equal 200, last_response.status_code
     assert_match(/FailWorker/, last_response.body)
     assert_match(/frumduz/, last_response.body)
@@ -348,31 +350,31 @@ describe "sidekiq web" do
 
     # on /queues page
     params = add_xss_retry
-    post "/retries/#{job_params(*params)}", {"retry" => "Retry"}
+    post "#{root_path}retries/#{job_params(*params)}", {"retry" => "Retry"}
     assert_equal 302, last_response.status_code
 
-    get "/queues/foo"
+    get "#{root_path}queues/foo"
     assert_equal 200, last_response.status_code
     last_response.body.should contain("&lt;a&gt;hello&lt;/a&gt;")
     last_response.body.should_not contain("<a>hello</a>")
   end
 
   it "can display home" do
-    get "/"
+    get "#{root_path}"
     assert_equal 200, last_response.status_code
   end
 
   it "can display home with days param and highlights links accordingly" do
-    get "/", {"days" => "180"}
+    get "#{root_path}", {"days" => "180"}
     assert_equal 200, last_response.status_code
     last_response.body.should match(/\?days=180" class=".*active/)
   end
 
   describe "dashboard/stats" do
     it "redirects to stats" do
-      get "/dashboard/stats"
+      get "#{root_path}dashboard/stats"
       assert_equal 302, last_response.status_code
-      assert_equal "/stats", last_response.headers["Location"]
+      assert_equal "#{root_path}stats", last_response.headers["Location"]
     end
   end
 
@@ -387,7 +389,7 @@ describe "sidekiq web" do
       3.times { add_scheduled }
       add_worker
 
-      get "/stats"
+      get "#{root_path}stats"
       response = JSON.parse(last_response.body).as_h
       assert_equal 200, last_response.status_code
       response.keys.should contain "sidekiq"
@@ -421,7 +423,7 @@ describe "sidekiq web" do
         conn.lpush("queue:queue2", "{}")
       end
 
-      get "/stats/queues"
+      get "#{root_path}stats/queues"
       response = JSON.parse(last_response.body).as_h
 
       assert_equal 3, response["default"]
@@ -431,13 +433,13 @@ describe "sidekiq web" do
 
   describe "dead jobs" do
     it "shows empty index" do
-      get "/morgue"
+      get "#{root_path}morgue"
       assert_equal 200, last_response.status_code
     end
 
     it "shows index with jobs" do
       _, score = add_dead
-      get "/morgue"
+      get "#{root_path}morgue"
       assert_equal 200, last_response.status_code
       assert_match(/#{score}/, last_response.body)
     end
@@ -446,19 +448,19 @@ describe "sidekiq web" do
       3.times { add_dead }
 
       assert_equal 3, Sidekiq::DeadSet.new.size
-      post "/morgue/all/delete", {"delete" => "Delete"}
+      post "#{root_path}morgue/all/delete", {"delete" => "Delete"}
       assert_equal 0, Sidekiq::DeadSet.new.size
       assert_equal 302, last_response.status_code
-      assert_equal "/morgue", last_response.headers["Location"]
+      assert_equal "#{root_path}morgue", last_response.headers["Location"]
     end
 
     it "can retry a dead job" do
       params = add_dead
-      post "/morgue/#{job_params(*params)}", {"retry" => "Retry"}, {"http_referer" => "http://example.org/morgue?page=3"}
+      post "#{root_path}morgue/#{job_params(*params)}", {"retry" => "Retry"}, {"http_referer" => "http://example.org/morgue?page=3"}
       assert_equal 302, last_response.status_code
-      assert_equal "/morgue?page=3", last_response.headers["Location"]
+      assert_equal "#{root_path}morgue?page=3", last_response.headers["Location"]
 
-      get "/queues/foo"
+      get "#{root_path}queues/foo"
       assert_equal 200, last_response.status_code
       assert_match(/#{params[1]}/, last_response.body)
     end
